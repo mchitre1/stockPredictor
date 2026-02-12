@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}Stock Predictor — Dashboard{% endblock %}
+{% block content %}
+  <section class="card scheduler-card">
+    <h2>Scheduler</h2>
+    <div class="scheduler-row">
+      <span class="scheduler-status" id="schedulerStatus" data-enabled="{{ 'true' if scheduler_status.enabled else 'false' }}">
+        {{ 'On' if scheduler_status.enabled else 'Off' }}
+      </span>
+      <span class="scheduler-detail" id="schedulerDetail">
+        {% if scheduler_status.enabled %}
+          Prediction 9:00 AM EST · Accuracy 5:00 PM EST
+        {% else %}
+          Paused — turn on to run at scheduled times
+        {% endif %}
+      </span>
+      <button type="button" class="btn {{ 'btn-scheduler-off' if scheduler_status.enabled else 'btn-scheduler-on' }}" id="schedulerToggle">
+        {{ 'Turn off' if scheduler_status.enabled else 'Turn on' }}
+      </button>
+    </div>
+  </section>
+
+  <section class="card today-pick">
+    <h2>Today's pick</h2>
+    {% if latest_prediction %}
+      <div class="pick-display">
+        <span class="pick-symbol">{{ latest_prediction.symbol }}</span>
+        <span class="pick-date">{{ latest_prediction.date }}</span>
+        <p class="pick-reason">{{ latest_prediction.reason or '—' }}</p>
+      </div>
+      <p class="pick-note">When scheduler is on, next run 9:00 AM EST. You can run a prediction manually below.</p>
+    {% else %}
+      <p class="empty-state">No prediction yet. Add stocks to your watchlist and run a prediction (or wait for 9 AM EST).</p>
+    {% endif %}
+    <button type="button" class="btn btn-primary" id="runPrediction">Run prediction now</button>
+  </section>
+
+  <section class="card accuracy-card">
+    <h2>Accuracy</h2>
+    <div class="accuracy-stats">
+      <div class="stat">
+        <span class="stat-value">{{ accuracy_stats.accuracy_pct }}%</span>
+        <span class="stat-label">Accuracy</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value">{{ accuracy_stats.correct }} / {{ accuracy_stats.total }}</span>
+        <span class="stat-label">Correct / Total</span>
+      </div>
+    </div>
+    <p class="accuracy-note">Correct = next-day return &gt; 0 for the picked stock. Updated daily after market close.</p>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Pick</th>
+            <th>Actual return</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in accuracy_history %}
+          <tr>
+            <td>{{ row.date }}</td>
+            <td>{{ row.predicted_symbol }}</td>
+            <td>{{ "%.2f"|format(row.actual_return|default(0)) }}%</td>
+            <td><span class="badge {{ 'badge-correct' if row.was_correct else 'badge-wrong' }}">{{ 'Correct' if row.was_correct else 'Wrong' }}</span></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4">No accuracy data yet. Predictions will be scored after the next trading day.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card watchlist-card">
+    <h2>Saved stocks (watchlist)</h2>
+    <form class="add-form" id="addStockForm">
+      <input type="text" name="symbol" placeholder="Symbol (e.g. AAPL)" required class="input-symbol">
+      <input type="text" name="name" placeholder="Name (optional)" class="input-name">
+      <button type="submit" class="btn btn-secondary">Add</button>
+    </form>
+    <ul class="watchlist" id="watchlist">
+      {% for w in watchlist %}
+      <li class="watchlist-item" data-symbol="{{ w.symbol }}">
+        <span class="item-symbol">{{ w.symbol }}</span>
+        <span class="item-name">{{ w.name or w.symbol }}</span>
+        <button type="button" class="btn-remove" aria-label="Remove {{ w.symbol }}">×</button>
+      </li>
+      {% else %}
+      <li class="watchlist-empty">No stocks yet. Add symbols above.</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="card history-card">
+    <h2>Recent predictions</h2>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Symbol</th>
+            <th>Score</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in predictions_history %}
+          <tr>
+            <td>{{ p.date }}</td>
+            <td>{{ p.symbol }}</td>
+            <td>{{ "%.1f"|format(p.score|default(0)) }}</td>
+            <td class="reason-cell">{{ p.reason or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4">No predictions yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}
+{% block scripts %}
+  <script>
+    document.getElementById('addStockForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const res = await fetch('{{ url_for("main.api_add_stock") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify({ symbol: fd.get('symbol'), name: fd.get('name') })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        location.reload();
+      } else {
+        alert(data.error || 'Failed to add');
+      }
+    });
+
+    document.getElementById('watchlist').addEventListener('click', async (e) => {
+      const btn = e.target.closest('.btn-remove');
+      if (!btn) return;
+      const li = btn.closest('[data-symbol]');
+      const symbol = li && li.dataset.symbol;
+      if (!symbol) return;
+      await fetch(`/api/watchlist/${encodeURIComponent(symbol)}`, { method: 'DELETE' });
+      li.remove();
+    });
+
+    const schedulerStatus = document.getElementById('schedulerStatus');
+    const schedulerDetail = document.getElementById('schedulerDetail');
+    const schedulerToggle = document.getElementById('schedulerToggle');
+    function updateSchedulerUI(enabled) {
+      schedulerStatus.textContent = enabled ? 'On' : 'Off';
+      schedulerStatus.dataset.enabled = enabled ? 'true' : 'false';
+      schedulerDetail.textContent = enabled
+        ? 'Prediction 9:00 AM EST · Accuracy 5:00 PM EST'
+        : 'Paused — turn on to run at scheduled times';
+      schedulerToggle.textContent = enabled ? 'Turn off' : 'Turn on';
+      schedulerToggle.className = 'btn ' + (enabled ? 'btn-scheduler-off' : 'btn-scheduler-on');
+    }
+    schedulerToggle.addEventListener('click', async () => {
+      const enabled = schedulerStatus.dataset.enabled !== 'true';
+      schedulerToggle.disabled = true;
+      const res = await fetch('{{ url_for("main.api_scheduler_set") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: enabled })
+      });
+      const data = await res.json();
+      schedulerToggle.disabled = false;
+      if (data.ok && data.scheduler) {
+        updateSchedulerUI(data.scheduler.enabled);
+      } else {
+        alert(data.error || 'Failed to update scheduler');
+      }
+    });
+
+    document.getElementById('runPrediction').addEventListener('click', async () => {
+      const btn = document.getElementById('runPrediction');
+      btn.disabled = true;
+      btn.textContent = 'Running…';
+      const res = await fetch('{{ url_for("main.api_run_prediction") }}', { method: 'POST' });
+      const data = await res.json();
+      btn.disabled = false;
+      btn.textContent = 'Run prediction now';
+      if (data.ok) {
+        location.reload();
+      } else {
+        alert(data.error || 'Prediction failed');
+      }
+    });
+  </script>
+{% endblock %}

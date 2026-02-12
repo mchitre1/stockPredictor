@@ -1,0 +1,30 @@
+# Environment and secrets
+.env
+.env.local
+*.env
+
+# Python
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# App data (SQLite)
+data/
+*.db
+*.sqlite3
+
+# IDE and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
