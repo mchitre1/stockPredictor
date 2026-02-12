@@ -36,8 +36,24 @@ def init_db(app):
             was_correct INTEGER NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS daily_picks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            rank INTEGER NOT NULL,
+            symbol TEXT NOT NULL,
+            score REAL,
+            reason TEXT,
+            price REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(date, rank)
+        );
     """)
     conn.commit()
+    try:
+        conn.execute("ALTER TABLE daily_picks ADD COLUMN price REAL")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
     conn.close()
 
 def get_db(app=None):

@@ -5,25 +5,15 @@ from app.models import get_latest_prediction, get_predictions_history, save_accu
 
 def update_accuracy_for_date(app, for_date_str):
     """
-    For a given prediction date, get that day's pick, then compute actual return
+    For a given prediction date, get that day's #1 pick, then compute actual return
     from that day's close to the next trading day's close. Log if prediction
     was 'correct' (actual return > 0 when we picked it).
     """
-    from app.database import db_connection
+    from app.models import get_predicted_symbol_for_date
+    symbol = get_predicted_symbol_for_date(app, for_date_str)
+    if not symbol:
+        return None
     with app.app_context():
-        # Find prediction for for_date_str
-        db = app.config.get("DATABASE")
-        import sqlite3
-        conn = sqlite3.connect(db)
-        conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT symbol, date, score FROM predictions WHERE date = ?",
-            (for_date_str,)
-        ).fetchone()
-        conn.close()
-        if not row:
-            return None
-        symbol = row["symbol"]
         # Get actual close on prediction date and next trading day
         end = datetime.strptime(for_date_str, "%Y-%m-%d") + timedelta(days=5)
         start = datetime.strptime(for_date_str, "%Y-%m-%d") - timedelta(days=5)
@@ -64,19 +54,21 @@ def update_accuracy_for_date(app, for_date_str):
 
 def update_latest_accuracy(app):
     """Update accuracy for the most recent prediction that doesn't have an accuracy log yet."""
-    from app.database import db_connection
     with app.app_context():
-        import sqlite3
-        db = app.config.get("DATABASE")
-        conn = sqlite3.connect(db)
-        conn.row_factory = sqlite3.Row
-        # Get prediction dates that don't have accuracy yet
-        rows = conn.execute("""
-            SELECT p.date FROM predictions p
-            LEFT JOIN accuracy_log a ON p.date = a.date
-            WHERE a.date IS NULL
-            ORDER BY p.date DESC
+        from app.database import get_db
+        db = get_db()
+        rows = db.execute("""
+            SELECT d.date FROM daily_picks d
+            WHERE d.rank = 1
+            AND d.date NOT IN (SELECT date FROM accuracy_log)
+            ORDER BY d.date DESC
         """).fetchall()
-        conn.close()
+        if not rows:
+            rows = db.execute("""
+                SELECT p.date FROM predictions p
+                LEFT JOIN accuracy_log a ON p.date = a.date
+                WHERE a.date IS NULL
+                ORDER BY p.date DESC
+            """).fetchall()
         for row in rows:
             update_accuracy_for_date(app, row[0])

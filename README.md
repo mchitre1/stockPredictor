@@ -9,7 +9,7 @@ A daily stock picker that uses **historical price data** and **optional news** t
 - **Today’s pick** — Shown on the dashboard; you can also run a prediction manually.
 - **Scheduler toggle** — Turn the 9 AM / 5 PM schedule on or off from the UI (e.g. for testing outside market hours).
 - **Accuracy tracking** — Compares each pick to the next trading day’s return; “correct” = next-day return > 0%. Updated daily at 5 PM EST.
-- **Web UI** — Dashboard with saved stocks, today’s pick, accuracy stats, and history.
+- **Web UI** — Dashboard with saved stocks, today’s pick, accuracy stats, and history (local only: **http://127.0.0.1:5000**).
 
 ## Prerequisites
 
@@ -69,7 +69,7 @@ Without this, predictions use only price momentum (no API key required).
 python run.py
 ```
 
-Open **http://localhost:5000** in your browser.
+Open **http://127.0.0.1:5000** in your browser. The app runs **local only** for security.
 
 ## How to use
 

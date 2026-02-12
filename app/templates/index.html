@@ -21,22 +21,33 @@
   </section>
 
   <section class="card today-pick">
-    <h2>Today's pick</h2>
-    {% if latest_prediction %}
-      <div class="pick-display">
-        <span class="pick-symbol">{{ latest_prediction.symbol }}</span>
-        <span class="pick-date">{{ latest_prediction.date }}</span>
-        <p class="pick-reason">{{ latest_prediction.reason or '—' }}</p>
+    <h2>Top 3 stocks to buy today</h2>
+    <p class="pick-universe">Chosen from the <strong>S&P 500</strong> each day. Each pick includes a short explanation of why it was ranked (momentum, news sentiment, and/or ML score). Accuracy below is for the #1 pick.</p>
+    {% if latest_picks %}
+      <div class="top3-list">
+        {% for p in latest_picks %}
+        <div class="pick-row">
+          <span class="pick-rank">#{{ p.rank }}</span>
+          <button type="button" class="pick-symbol-btn" data-symbol="{{ p.symbol }}" data-reason="{{ (p.reason or '')|e }}" title="View chart">
+            {{ p.symbol }}
+          </button>
+          {% if p.price is not none %}<span class="pick-price">${{ "%.2f"|format(p.price) }}</span>{% endif %}
+          <span class="pick-date">{{ p.date }}</span>
+          <p class="pick-explanation">{{ p.reason or '—' }}</p>
+        </div>
+        {% endfor %}
       </div>
+      {% if ml_available %}<p class="pick-ml-note">Using ML model (trained on past accuracy).</p>{% endif %}
       <p class="pick-note">When scheduler is on, next run 9:00 AM EST. You can run a prediction manually below.</p>
     {% else %}
-      <p class="empty-state">No prediction yet. Add stocks to your watchlist and run a prediction (or wait for 9 AM EST).</p>
+      <p class="empty-state">No prediction yet. Run a prediction (or wait for 9 AM EST).</p>
     {% endif %}
     <button type="button" class="btn btn-primary" id="runPrediction">Run prediction now</button>
   </section>
 
   <section class="card accuracy-card">
-    <h2>Accuracy</h2>
+    <h2>Accuracy (day-to-day)</h2>
+    <p class="accuracy-desc">Tracks whether the <strong>#1 pick</strong> had a positive next-day return. Use this to see if the tool is working over time.</p>
     <div class="accuracy-stats">
       <div class="stat">
         <span class="stat-value">{{ accuracy_stats.accuracy_pct }}%</span>
@@ -62,7 +73,9 @@
           {% for row in accuracy_history %}
           <tr>
             <td>{{ row.date }}</td>
-            <td>{{ row.predicted_symbol }}</td>
+            <td>
+              <button type="button" class="symbol-link" data-symbol="{{ row.predicted_symbol }}" title="View chart">{{ row.predicted_symbol }}</button>
+            </td>
             <td>{{ "%.2f"|format(row.actual_return|default(0)) }}%</td>
             <td><span class="badge {{ 'badge-correct' if row.was_correct else 'badge-wrong' }}">{{ 'Correct' if row.was_correct else 'Wrong' }}</span></td>
           </tr>
@@ -74,34 +87,24 @@
     </div>
   </section>
 
-  <section class="card watchlist-card">
-    <h2>Saved stocks (watchlist)</h2>
-    <form class="add-form" id="addStockForm">
-      <input type="text" name="symbol" placeholder="Symbol (e.g. AAPL)" required class="input-symbol">
-      <input type="text" name="name" placeholder="Name (optional)" class="input-name">
-      <button type="submit" class="btn btn-secondary">Add</button>
-    </form>
-    <ul class="watchlist" id="watchlist">
-      {% for w in watchlist %}
-      <li class="watchlist-item" data-symbol="{{ w.symbol }}">
-        <span class="item-symbol">{{ w.symbol }}</span>
-        <span class="item-name">{{ w.name or w.symbol }}</span>
-        <button type="button" class="btn-remove" aria-label="Remove {{ w.symbol }}">×</button>
-      </li>
-      {% else %}
-      <li class="watchlist-empty">No stocks yet. Add symbols above.</li>
-      {% endfor %}
-    </ul>
-  </section>
-
   <section class="card history-card">
     <h2>Recent predictions</h2>
+    <div class="history-actions">
+      <button type="button" class="btn btn-outline" id="clearPredictions">Clear recent predictions</button>
+      {% if not ml_available and accuracy_stats.total >= 8 %}
+      <button type="button" class="btn btn-outline" id="trainML">Train ML model</button>
+      {% elif ml_available %}
+      <button type="button" class="btn btn-outline" id="retrainML">Retrain ML model</button>
+      {% endif %}
+    </div>
     <div class="table-wrap">
       <table class="data-table">
         <thead>
           <tr>
             <th>Date</th>
+            <th>Rank</th>
             <th>Symbol</th>
+            <th>Price</th>
             <th>Score</th>
             <th>Reason</th>
           </tr>
@@ -110,46 +113,56 @@
           {% for p in predictions_history %}
           <tr>
             <td>{{ p.date }}</td>
-            <td>{{ p.symbol }}</td>
-            <td>{{ "%.1f"|format(p.score|default(0)) }}</td>
+            <td>#{{ p.rank }}</td>
+            <td>
+              <button type="button" class="symbol-link" data-symbol="{{ p.symbol }}" data-reason="{{ (p.reason or '')|e }}" title="View chart">{{ p.symbol }}</button>
+            </td>
+            <td>{% if p.price is not none %}${{ "%.2f"|format(p.price) }}{% else %}—{% endif %}</td>
+            <td>{{ "%.2f"|format(p.score|default(0)) }}</td>
             <td class="reason-cell">{{ p.reason or '—' }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="4">No predictions yet.</td></tr>
+          <tr><td colspan="6">No predictions yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   </section>
+
+  <div id="chartModal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" id="chartModalBackdrop"></div>
+    <div class="modal-content modal-content-wide">
+      <div class="modal-header">
+        <h3 id="chartModalTitle">Stock price</h3>
+        <div class="modal-period">
+          <label>Period:</label>
+          <select id="chartPeriod">
+            <option value="30">30 days</option>
+            <option value="90" selected>90 days</option>
+            <option value="180">6 months</option>
+            <option value="365">1 year</option>
+          </select>
+        </div>
+        <button type="button" class="modal-close" id="chartModalClose" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="chartWhyRanked" class="chart-why-ranked" style="display:none;">
+          <strong>Why ranked:</strong> <span id="chartWhyRankedText"></span>
+        </div>
+        <div class="chart-canvas-wrap">
+          <canvas id="stockChart" width="400" height="250"></canvas>
+        </div>
+        <div id="chartNews" class="chart-news">
+          <strong>Recent news</strong>
+          <ul id="chartNewsList"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
 {% endblock %}
 {% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script>
-    document.getElementById('addStockForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const res = await fetch('{{ url_for("main.api_add_stock") }}', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        body: JSON.stringify({ symbol: fd.get('symbol'), name: fd.get('name') })
-      });
-      const data = await res.json();
-      if (data.ok) {
-        location.reload();
-      } else {
-        alert(data.error || 'Failed to add');
-      }
-    });
-
-    document.getElementById('watchlist').addEventListener('click', async (e) => {
-      const btn = e.target.closest('.btn-remove');
-      if (!btn) return;
-      const li = btn.closest('[data-symbol]');
-      const symbol = li && li.dataset.symbol;
-      if (!symbol) return;
-      await fetch(`/api/watchlist/${encodeURIComponent(symbol)}`, { method: 'DELETE' });
-      li.remove();
-    });
-
     const schedulerStatus = document.getElementById('schedulerStatus');
     const schedulerDetail = document.getElementById('schedulerDetail');
     const schedulerToggle = document.getElementById('schedulerToggle');
@@ -193,5 +206,150 @@
         alert(data.error || 'Prediction failed');
       }
     });
+
+    const clearBtn = document.getElementById('clearPredictions');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', async () => {
+        if (!confirm('Clear all recent predictions? Accuracy history is kept.')) return;
+        clearBtn.disabled = true;
+        await fetch('{{ url_for("main.api_clear_predictions") }}', { method: 'POST' });
+        location.reload();
+      });
+    }
+
+    function bindMLButton(id, label) {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = 'Training…';
+        const res = await fetch('{{ url_for("main.api_ml_train") }}', { method: 'POST' });
+        const data = await res.json();
+        btn.disabled = false;
+        btn.textContent = label;
+        if (data.ok) {
+          location.reload();
+        } else {
+          alert(data.error || 'Training failed');
+        }
+      });
+    }
+    bindMLButton('trainML', 'Train ML model');
+    bindMLButton('retrainML', 'Retrain ML model');
+
+    (function() {
+      const modal = document.getElementById('chartModal');
+      const titleEl = document.getElementById('chartModalTitle');
+      const canvas = document.getElementById('stockChart');
+      const periodSelect = document.getElementById('chartPeriod');
+      const whyRankedEl = document.getElementById('chartWhyRanked');
+      const whyRankedText = document.getElementById('chartWhyRankedText');
+      const newsList = document.getElementById('chartNewsList');
+      let chartInstance = null;
+      let currentSymbol = null;
+
+      function openChart(symbol, reason) {
+        currentSymbol = symbol;
+        titleEl.textContent = symbol + ' — Loading…';
+        whyRankedEl.style.display = reason ? 'block' : 'none';
+        whyRankedText.textContent = reason || '';
+        newsList.innerHTML = '';
+        modal.classList.add('modal-open');
+        modal.setAttribute('aria-hidden', 'false');
+        loadChart(symbol, parseInt(periodSelect.value, 10));
+        loadNews(symbol);
+      }
+
+      function loadChart(symbol, days) {
+        fetch('/api/stock/' + encodeURIComponent(symbol) + '/chart?days=' + days)
+          .then(r => r.json())
+          .then(function(res) {
+            if (!res.ok || !res.data || !res.data.length) {
+              if (chartInstance) chartInstance.destroy();
+              titleEl.textContent = (res.name || symbol) + ' (' + symbol + ')';
+              return;
+            }
+            var name = res.name || symbol;
+            titleEl.textContent = name + ' (' + symbol + ')';
+            var labels = res.data.map(function(d) { return d.date; });
+            var values = res.data.map(function(d) { return d.close; });
+            if (chartInstance) chartInstance.destroy();
+            chartInstance = new Chart(canvas, {
+              type: 'line',
+              data: {
+                labels: labels,
+                datasets: [{
+                  label: symbol + ' close',
+                  data: values,
+                  borderColor: '#0ea5e9',
+                  backgroundColor: 'rgba(14, 165, 233, 0.08)',
+                  fill: true,
+                  tension: 0.2
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: { legend: { display: false } },
+                scales: {
+                  x: {
+                    ticks: { maxTicksLimit: 12, color: '#64748b' },
+                    grid: { color: '#e2e8f0' }
+                  },
+                  y: {
+                    beginAtZero: false,
+                    ticks: { color: '#64748b' },
+                    grid: { color: '#e2e8f0' }
+                  }
+                }
+              }
+            });
+          });
+      }
+
+      function loadNews(symbol) {
+        fetch('/api/stock/' + encodeURIComponent(symbol) + '/news')
+          .then(r => r.json())
+          .then(function(res) {
+            newsList.innerHTML = '';
+            if (!res.ok || !res.news || !res.news.length) {
+              newsList.innerHTML = '<li class="chart-news-empty">No recent news (or Finnhub key not set).</li>';
+              return;
+            }
+            res.news.forEach(function(n) {
+              var li = document.createElement('li');
+              var a = document.createElement('a');
+              a.href = n.url || '#';
+              a.target = '_blank';
+              a.rel = 'noopener';
+              a.textContent = n.headline || 'Article';
+              li.appendChild(a);
+              if (n.summary) {
+                var p = document.createElement('p');
+                p.className = 'chart-news-summary';
+                p.textContent = n.summary;
+                li.appendChild(p);
+              }
+              newsList.appendChild(li);
+            });
+          });
+      }
+
+      function closeModal() {
+        modal.classList.remove('modal-open');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+
+      document.querySelectorAll('.pick-symbol-btn, .symbol-link').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          openChart(btn.dataset.symbol, btn.dataset.reason || '');
+        });
+      });
+      document.getElementById('chartModalBackdrop').addEventListener('click', closeModal);
+      document.getElementById('chartModalClose').addEventListener('click', closeModal);
+      periodSelect.addEventListener('change', function() {
+        if (currentSymbol) loadChart(currentSymbol, parseInt(periodSelect.value, 10));
+      });
+    })();
   </script>
 {% endblock %}

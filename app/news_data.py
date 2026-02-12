@@ -5,6 +5,36 @@ import requests
 
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
+def get_company_news(api_key, symbol, days=3):
+    """Fetch recent company news with headline, url, summary. Returns list of dicts or []."""
+    if not api_key:
+        return []
+    to_date = datetime.now()
+    from_date = to_date - timedelta(days=days)
+    url = f"{FINNHUB_BASE}/company-news"
+    params = {
+        "symbol": symbol,
+        "from": from_date.strftime("%Y-%m-%d"),
+        "to": to_date.strftime("%Y-%m-%d"),
+        "token": api_key,
+    }
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        items = r.json()
+    except Exception:
+        return []
+    out = []
+    for item in (items or [])[:15]:
+        out.append({
+            "headline": item.get("headline") or "",
+            "url": item.get("url") or "",
+            "summary": (item.get("summary") or "")[:300],
+            "datetime": item.get("datetime"),
+        })
+    return out
+
+
 def get_news_sentiment(api_key, symbol, from_date=None, to_date=None):
     """Fetch company news and derive a simple sentiment score (-1 to 1)."""
     if not api_key:
