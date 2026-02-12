@@ -46,10 +46,17 @@ def api_remove_stock(symbol):
 
 @bp.route("/api/run-prediction", methods=["POST"])
 def api_run_prediction():
+    from app.models import get_watchlist
+    watchlist = get_watchlist(current_app)
+    if not watchlist:
+        return jsonify({"ok": False, "error": "Add at least one stock to your watchlist first."}), 400
     result = run_prediction(current_app)
     if result:
         return jsonify({"ok": True, "result": result})
-    return jsonify({"ok": False, "error": "No watchlist or data"}), 400
+    return jsonify({
+        "ok": False,
+        "error": "No price data returned for your symbols. Check that symbols are valid (e.g. AAPL, MSFT) and try again.",
+    }), 400
 
 @bp.route("/api/accuracy")
 def api_accuracy():

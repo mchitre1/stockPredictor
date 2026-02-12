@@ -12,7 +12,7 @@ def run_prediction(app):
     if not symbols:
         return None
     today = datetime.now().strftime("%Y-%m-%d")
-    prices = fetch_prices(symbols, days=60)
+    prices = fetch_prices(symbols, days=90)
     scores = []
     for sym in symbols:
         series = prices.get(sym)
